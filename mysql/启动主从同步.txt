@@ -1,0 +1,55 @@
+1.通过Dockerfile打成镜像并上传到阿里云镜像仓库
+    1.1打master镜像上传阿里云
+        docker build -t registry.cn-hangzhou.aliyuncs.com/wubo/mysql-master:5.7
+        docker push registry.cn-hangzhou.aliyuncs.com/wubo/mysql-master:5.7
+     1.1打slave镜像上传阿里云
+         docker build -t registry.cn-hangzhou.aliyuncs.com/wubo/mysql-slave:5.7
+         docker push registry.cn-hangzhou.aliyuncs.com/wubo/mysql-slave:5.7
+2.从阿里云下载镜像
+    docker pull registry.cn-hangzhou.aliyuncs.com/wubo/mysql-master:5.7
+    docker pull registry.cn-hangzhou.aliyuncs.com/wubo/mysql-slave:5.7
+
+3.启动master容器
+        docker run \
+        --name mysql-master \
+        --privileged=true \
+        -v /home/mysql/etc/master:/etc/mysql/conf.d \
+        -v /home/mysql/master-data:/var/lib/mysql \
+        -p 3306:3306 \
+        -e MYSQL_ROOT_PASSWORD=root \
+        -d registry.cn-hangzhou.aliyuncs.com/wubo/mysql-master:5.7
+4.启动slave容器
+        docker run \
+        --name mysql-slave \
+        --privileged=true \
+        -v /home/mysql/etc/slave:/etc/mysql/conf.d \
+        -v /home/mysql/slave-data:/var/lib/mysql \
+        -p 3307:3306 --link mysql-master:master \
+        -e MYSQL_ROOT_PASSWORD=root \
+        -d registry.cn-hangzhou.aliyuncs.com/wubo/mysql-slave:5.7
+
+// 如果授权给*就不需要查看ip
+docker inspect --format='{{.NetworkSettings.IPAddress}}' mysql-master
+docker inspect --format='{{.NetworkSettings.IPAddress}}' mysql-slave
+
+4.进入master容器,设置主从同步的账号
+        docker exec -it mysql-master /bin/bash
+        mysql -uroot -proot
+        grant replication slave on *.* to 'test'@'%' identified by '123456';
+        flush privileges;
+        // 查看主的状态
+        show master status;
+
+5.进去slave容器,配置master信息,启动slave
+docker exec -it mysql-slave /bin/bash
+mysql -uroot -proot
+change master to master_host='master', master_user='test', master_password='123456', \
+master_port=3306, master_log_file='mysql-bin.000001', master_log_pos=589, master_connect_retry=30;
+
+start slave;
+//如果启动出现Slave failed to initialize relay log info structure from the repository错误
+    reset slave;
+    start slave IO_THREAD;
+    start slave;
+// 查看从的状态
+show slave status\G
